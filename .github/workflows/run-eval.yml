@@ -117,14 +117,23 @@ jobs:
           from pathlib import Path
 
           data = json.loads(Path('artifacts/response.json').read_text(encoding='utf-8'))
-          text = data.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+          raw = data.get('choices', [{}])[0].get('message', {}).get('content', '')
+
+          if isinstance(raw, list):
+              text = ''.join(part.get('text', '') if isinstance(part, dict) else str(part) for part in raw).strip()
+          else:
+              text = str(raw).strip()
+
           if not text:
               raise SystemExit('Model returned empty content')
 
-          # Strip markdown code fences if present.
-          m = re.match(r"^```[a-zA-Z0-9_+-]*\\n([\\s\\S]*?)\\n```$", text)
-          if m:
-              text = m.group(1)
+          # Strip markdown fences robustly, including mixed prose + fenced code.
+          block = re.search(r"```[a-zA-Z0-9_+-]*\n([\s\S]*?)\n```", text)
+          if block:
+              text = block.group(1).strip()
+          else:
+              text = re.sub(r"^```[a-zA-Z0-9_+-]*\n?", "", text)
+              text = re.sub(r"\n?```$", "", text).strip()
 
           Path(os.environ['SOURCE_FILE']).write_text(text, encoding='utf-8')
           PY
