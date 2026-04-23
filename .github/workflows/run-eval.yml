@@ -1,0 +1,175 @@
+# Demo reusable workflow in the platform repo; called from a client repo via workflow_call.
+name: Run Eval
+
+on:
+  workflow_call:
+    inputs:
+      issue_id:
+        required: true
+        type: string
+      model:
+        required: false
+        type: string
+      base_commit:
+        required: true
+        type: string
+      target_test:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  models: read
+
+jobs:
+  run-eval:
+    runs-on: ubuntu-latest
+    env:
+      ISSUE_ID: ${{ inputs.issue_id }}
+      BASE_COMMIT: ${{ inputs.base_commit }}
+      TARGET_TEST: ${{ inputs.target_test }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # TODO_DEMO: Set your default model choice for the demo.
+      MODEL: ${{ inputs.model || 'openai/gpt-4o' }}
+      # TODO_DEMO: Demo assumes only this file is model-edited.
+      SOURCE_FILE: app.py
+
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pytest
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+
+      - name: Prepare artifacts and reset to base commit
+        run: |
+          mkdir -p artifacts
+          git checkout --force "$BASE_COMMIT"
+
+      - name: Run target test first and assert FAIL
+        run: |
+          set +e
+          python -m pytest "$TARGET_TEST" > artifacts/target_before.log 2>&1
+          rc=$?
+          set -e
+          cat artifacts/target_before.log
+          if [ "$rc" -eq 0 ]; then
+            echo "Expected target test to fail before patch, but it passed."
+            exit 1
+          fi
+
+      - name: Build prompt and call GitHub Models
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          source = Path(os.environ['SOURCE_FILE'])
+          if not source.exists():
+              raise SystemExit(f"Missing demo source file: {source}")
+
+          # TODO_DEMO: Tweak prompt wording for your preferred patch behavior.
+          prompt = (
+              f"Issue ID: {os.environ['ISSUE_ID']}\\n"
+              f"Target test: {os.environ['TARGET_TEST']}\\n\\n"
+              "Return ONLY the full updated contents of the target file.\\n"
+              f"Target file path: {source}\\n\\n"
+              "Current file contents:\\n"
+              f"{source.read_text(encoding='utf-8')}"
+          )
+
+          body = {
+              # TODO_DEMO: Confirm model/request assumptions for your demo.
+              "messages": [{"role": "user", "content": prompt}],
+              "model": os.environ['MODEL']
+          }
+          Path('artifacts/request.json').write_text(json.dumps(body), encoding='utf-8')
+          PY
+
+          response=$(curl -sS "https://models.github.ai/inference/chat/completions" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -d @artifacts/request.json)
+
+          echo "$response" > artifacts/response.json
+
+      - name: Apply model output to source file
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          data = json.loads(Path('artifacts/response.json').read_text(encoding='utf-8'))
+          text = data.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+          if not text:
+              raise SystemExit('Model returned empty content')
+
+          # Strip markdown code fences if present.
+          m = re.match(r"^```[a-zA-Z0-9_+-]*\\n([\\s\\S]*?)\\n```$", text)
+          if m:
+              text = m.group(1)
+
+          Path(os.environ['SOURCE_FILE']).write_text(text, encoding='utf-8')
+          PY
+
+      - name: Save patch diff to base commit
+        run: |
+          git diff --binary "$BASE_COMMIT" > artifacts/solution.patch
+
+      - name: Re-run target test and assert PASS
+        run: |
+          python -m pytest "$TARGET_TEST" 2>&1 | tee artifacts/target_after.log
+
+      - name: Run full_verify and assert PASS
+        run: |
+          # TODO_DEMO: Replace with your exact full_verify command if different.
+          python -m pytest 2>&1 | tee artifacts/full_verify.log
+
+      - name: Write result.json
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          result = {
+              "issue_id": os.environ['ISSUE_ID'],
+              "base_commit": os.environ['BASE_COMMIT'],
+              "target_test": os.environ['TARGET_TEST'],
+              "model": os.environ['MODEL'],
+              "status": "${{ job.status }}"
+          }
+          Path('artifacts/result.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+          PY
+
+      - name: Upload logs/artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-${{ inputs.issue_id }}
+          path: artifacts/
+
+      - name: Write summary
+        if: always()
+        run: |
+          {
+            echo "## Eval Run Summary"
+            echo "- issue_id: $ISSUE_ID"
+            echo "- base_commit: $BASE_COMMIT"
+            echo "- target_test: $TARGET_TEST"
+            echo "- model: $MODEL"
+            echo "- status: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
