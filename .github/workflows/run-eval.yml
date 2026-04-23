@@ -7,6 +7,9 @@ on:
       issue_id:
         required: true
         type: string
+      issue_description:
+        required: true
+        type: string
       model:
         required: false
         type: string
@@ -26,6 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ISSUE_ID: ${{ inputs.issue_id }}
+      ISSUE_DESCRIPTION: ${{ inputs.issue_description }}
       BASE_COMMIT: ${{ inputs.base_commit }}
       TARGET_TEST: ${{ inputs.target_test }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -81,6 +85,7 @@ jobs:
           # TODO_DEMO: Tweak prompt wording for your preferred patch behavior.
           prompt = (
               f"Issue ID: {os.environ['ISSUE_ID']}\\n"
+              f"Issue description: {os.environ['ISSUE_DESCRIPTION']}\\n"
               f"Target test: {os.environ['TARGET_TEST']}\\n\\n"
               "Return ONLY the full updated contents of the target file.\\n"
               f"Target file path: {source}\\n\\n"
