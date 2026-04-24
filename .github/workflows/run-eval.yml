@@ -7,6 +7,10 @@ on:
       issue_id:
         required: true
         type: string
+      issue_description:
+        required: false
+        type: string
+        default: ""
       model:
         required: false
         type: string
@@ -38,6 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ISSUE_ID: ${{ inputs.issue_id }}
+      ISSUE_DESCRIPTION: ${{ inputs.issue_description }}
       BASE_COMMIT: ${{ inputs.base_commit }}
       TARGET_TEST: ${{ inputs.target_test }}
       FULL_VERIFY: ${{ inputs.full_verify }}
@@ -97,10 +102,12 @@ jobs:
 
           # TODO_DEMO: If prompt_file contains many tasks, add task-specific extraction logic.
           task_prompt = prompt_file.read_text(encoding='utf-8')
+          issue_description = os.environ.get('ISSUE_DESCRIPTION', '').strip()
 
           # TODO_DEMO: Tweak prompt wording for your preferred patch behavior.
           prompt = (
               f"Issue ID: {os.environ['ISSUE_ID']}\\n"
+              f"Issue description:\\n{issue_description if issue_description else '(not provided)'}\\n\\n"
               f"Target test: {os.environ['TARGET_TEST']}\\n\\n"
               f"Task prompt from {prompt_file}:\\n{task_prompt}\\n\\n"
               "Return ONLY the full updated contents of the target file.\\n"
@@ -177,6 +184,7 @@ jobs:
 
           result = {
               "issue_id": os.environ['ISSUE_ID'],
+              "issue_description_present": bool(os.environ.get('ISSUE_DESCRIPTION', '').strip()),
               "base_commit": os.environ['BASE_COMMIT'],
               "target_test": os.environ['TARGET_TEST'],
               "full_verify": os.environ['FULL_VERIFY'],
@@ -201,6 +209,7 @@ jobs:
           {
             echo "## Eval Run Summary"
             echo "- issue_id: $ISSUE_ID"
+            echo "- issue_description_present: $( [ -n \"$ISSUE_DESCRIPTION\" ] && echo true || echo false )"
             echo "- base_commit: $BASE_COMMIT"
             echo "- target_test: $TARGET_TEST"
             echo "- full_verify: $FULL_VERIFY"
