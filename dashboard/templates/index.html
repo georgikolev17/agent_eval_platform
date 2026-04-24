@@ -10,6 +10,7 @@
   <main class="container">
     <h1>Eval Workflow Dispatch</h1>
     <p class="note">Prototype UI for triggering GitHub Actions <code>workflow_dispatch</code>.</p>
+    <p class="note">Issue description is fetched dynamically from GitHub Issue API using <code>issue_id</code> and sent as workflow input.</p>
 
     <form method="post" action="/dispatch">
       <label>GitHub owner<input name="owner" required value="{{ (form_values.owner if form_values else 'georgikolev17') }}"></label>
