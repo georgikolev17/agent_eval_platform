@@ -6,26 +6,51 @@ from urllib.request import Request, urlopen
 app = Flask(__name__)
 
 
-def trigger_workflow(owner: str, repo: str, workflow_id_or_file: str, ref: str, token: str, inputs: dict):
-    url = f"https://api.github.com/repos/{owner}/{repo}/actions/workflows/{workflow_id_or_file}/dispatches"
-    payload = json.dumps({"ref": ref, "inputs": inputs}).encode("utf-8")
+def github_json_request(method: str, url: str, token: str, payload: dict | None = None):
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
 
-    req = Request(url, data=payload, method="POST")
+    req = Request(url, data=data, method=method)
     req.add_header("Accept", "application/vnd.github+json")
     req.add_header("Authorization", f"Bearer {token}")
     req.add_header("X-GitHub-Api-Version", "2022-11-28")
-    req.add_header("Content-Type", "application/json")
+    if payload is not None:
+        req.add_header("Content-Type", "application/json")
 
     try:
         with urlopen(req, timeout=30) as resp:
-            status_code = resp.getcode()
-            body = resp.read().decode("utf-8")
-            return status_code, body
+            return resp.getcode(), resp.read().decode("utf-8")
     except HTTPError as e:
         body = e.read().decode("utf-8", errors="replace") if e.fp else ""
         return e.code, body
     except URLError as e:
         return 0, str(e)
+
+
+def fetch_issue_description(owner: str, repo: str, issue_id: str, token: str):
+    issue_url = f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_id}"
+    status_code, body = github_json_request("GET", issue_url, token)
+
+    if status_code != 200:
+        return False, status_code, body, "Failed to fetch issue details from GitHub."
+
+    try:
+        issue = json.loads(body)
+    except json.JSONDecodeError:
+        return False, status_code, body, "Issue fetch returned non-JSON response."
+
+    title = (issue.get("title") or "").strip()
+    description = (issue.get("body") or "").strip()
+
+    # TODO_DEMO: Replace this simple concatenation with structured issue-to-task mapping if needed.
+    combined = f"{title}\n\n{description}".strip()
+    return True, status_code, body, combined
+
+
+def trigger_workflow(owner: str, repo: str, workflow_id_or_file: str, ref: str, token: str, inputs: dict):
+    url = f"https://api.github.com/repos/{owner}/{repo}/actions/workflows/{workflow_id_or_file}/dispatches"
+    return github_json_request("POST", url, token, payload={"ref": ref, "inputs": inputs})
 
 
 @app.get("/")
@@ -40,9 +65,31 @@ def dispatch():
     workflow_id_or_file = request.form.get("workflow", "").strip()
     ref = request.form.get("ref", "main").strip() or "main"
     token = request.form.get("token", "").strip()
+    issue_id = request.form.get("issue_id", "").strip()
+
+    ok, issue_status, issue_raw, issue_payload_or_message = fetch_issue_description(
+        owner=owner,
+        repo=repo,
+        issue_id=issue_id,
+        token=token,
+    )
+
+    if not ok:
+        return render_template(
+            "index.html",
+            result={
+                "status_code": issue_status,
+                "message": issue_payload_or_message,
+                "response": issue_raw,
+            },
+            form_values=request.form,
+        )
+
+    issue_description = issue_payload_or_message
 
     inputs = {
-        "issue_id": request.form.get("issue_id", "").strip(),
+        "issue_id": issue_id,
+        "issue_description": issue_description,
         "model": request.form.get("model", "").strip(),
         "base_commit": request.form.get("base_commit", "").strip(),
         "target_test": request.form.get("target_test", "").strip(),
@@ -61,7 +108,7 @@ def dispatch():
     )
 
     if status_code == 204:
-        message = "Dispatch accepted by GitHub Actions."
+        message = "Dispatch accepted by GitHub Actions. Issue description was fetched and passed as input."
     elif status_code == 0:
         message = "Network error while calling GitHub API."
     else:
