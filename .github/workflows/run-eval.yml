@@ -7,9 +7,6 @@ on:
       issue_id:
         required: true
         type: string
-      issue_description:
-        required: true
-        type: string
       model:
         required: false
         type: string
@@ -19,6 +16,18 @@ on:
       target_test:
         required: true
         type: string
+      full_verify:
+        required: false
+        type: string
+        default: python -m pytest
+      source_file:
+        required: false
+        type: string
+        default: app.py
+      prompt_file:
+        required: false
+        type: string
+        default: task_prompts.md
 
 permissions:
   contents: read
@@ -29,14 +38,14 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ISSUE_ID: ${{ inputs.issue_id }}
-      ISSUE_DESCRIPTION: ${{ inputs.issue_description }}
       BASE_COMMIT: ${{ inputs.base_commit }}
       TARGET_TEST: ${{ inputs.target_test }}
+      FULL_VERIFY: ${{ inputs.full_verify }}
+      SOURCE_FILE: ${{ inputs.source_file }}
+      PROMPT_FILE: ${{ inputs.prompt_file }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # TODO_DEMO: Set your default model choice for the demo.
       MODEL: ${{ inputs.model || 'openai/gpt-4o' }}
-      # TODO_DEMO: Demo assumes only this file is model-edited.
-      SOURCE_FILE: app.py
 
     steps:
       - name: Checkout caller repo
@@ -79,14 +88,21 @@ jobs:
           from pathlib import Path
 
           source = Path(os.environ['SOURCE_FILE'])
+          prompt_file = Path(os.environ['PROMPT_FILE'])
+
           if not source.exists():
-              raise SystemExit(f"Missing demo source file: {source}")
+              raise SystemExit(f"Missing source file: {source}")
+          if not prompt_file.exists():
+              raise SystemExit(f"Missing prompt file: {prompt_file}")
+
+          # TODO_DEMO: If prompt_file contains many tasks, add task-specific extraction logic.
+          task_prompt = prompt_file.read_text(encoding='utf-8')
 
           # TODO_DEMO: Tweak prompt wording for your preferred patch behavior.
           prompt = (
               f"Issue ID: {os.environ['ISSUE_ID']}\\n"
-              f"Issue description: {os.environ['ISSUE_DESCRIPTION']}\\n"
               f"Target test: {os.environ['TARGET_TEST']}\\n\\n"
+              f"Task prompt from {prompt_file}:\\n{task_prompt}\\n\\n"
               "Return ONLY the full updated contents of the target file.\\n"
               f"Target file path: {source}\\n\\n"
               "Current file contents:\\n"
@@ -127,7 +143,6 @@ jobs:
           if not text:
               raise SystemExit('Model returned empty content')
 
-          # Strip markdown fences robustly, including mixed prose + fenced code.
           block = re.search(r"```[a-zA-Z0-9_+-]*\n([\s\S]*?)\n```", text)
           if block:
               text = block.group(1).strip()
@@ -148,8 +163,9 @@ jobs:
 
       - name: Run full_verify and assert PASS
         run: |
-          # TODO_DEMO: Replace with your exact full_verify command if different.
-          python -m pytest 2>&1 | tee artifacts/full_verify.log
+          set -o pipefail
+          # TODO_DEMO: full_verify is demo-configurable and comes from workflow input.
+          bash -lc "$FULL_VERIFY" 2>&1 | tee artifacts/full_verify.log
 
       - name: Write result.json
         if: always()
@@ -163,6 +179,9 @@ jobs:
               "issue_id": os.environ['ISSUE_ID'],
               "base_commit": os.environ['BASE_COMMIT'],
               "target_test": os.environ['TARGET_TEST'],
+              "full_verify": os.environ['FULL_VERIFY'],
+              "source_file": os.environ['SOURCE_FILE'],
+              "prompt_file": os.environ['PROMPT_FILE'],
               "model": os.environ['MODEL'],
               "status": "${{ job.status }}"
           }
@@ -184,6 +203,9 @@ jobs:
             echo "- issue_id: $ISSUE_ID"
             echo "- base_commit: $BASE_COMMIT"
             echo "- target_test: $TARGET_TEST"
+            echo "- full_verify: $FULL_VERIFY"
+            echo "- source_file: $SOURCE_FILE"
+            echo "- prompt_file: $PROMPT_FILE"
             echo "- model: $MODEL"
             echo "- status: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"
