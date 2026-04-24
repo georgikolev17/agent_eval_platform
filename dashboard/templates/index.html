@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Eval Dispatch Demo</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="container">
+    <h1>Eval Workflow Dispatch</h1>
+    <p class="note">Prototype UI for triggering GitHub Actions <code>workflow_dispatch</code>.</p>
+
+    <form method="post" action="/dispatch">
+      <label>GitHub owner<input name="owner" required value="{{ (form_values.owner if form_values else 'georgikolev17') }}"></label>
+      <label>GitHub repo<input name="repo" required value="{{ (form_values.repo if form_values else 'eval_regress_test') }}"></label>
+      <label>Workflow file name or id<input name="workflow" required value="{{ (form_values.workflow if form_values else 'call-platform-eval.yml') }}"></label>
+      <label>Branch / ref<input name="ref" required value="{{ (form_values.ref if form_values else 'main') }}"></label>
+
+      <label>issue_id<input name="issue_id" required value="{{ (form_values.issue_id if form_values else '2') }}"></label>
+      <label>model<input name="model" required value="{{ (form_values.model if form_values else 'openai/gpt-4o') }}"></label>
+      <label>base_commit<input name="base_commit" required value="{{ (form_values.base_commit if form_values else '4b54fd6813fa8ce88cafb3c89dde9e2d8b84b30d') }}"></label>
+      <label>target_test<input name="target_test" required value="{{ (form_values.target_test if form_values else 'test_app.py::test_is_adult_accepts_18') }}"></label>
+      <label>full_verify<input name="full_verify" required value="{{ (form_values.full_verify if form_values else 'python -m pytest') }}"></label>
+      <label>source_file<input name="source_file" required value="{{ (form_values.source_file if form_values else 'app.py') }}"></label>
+      <label>prompt_file<input name="prompt_file" required value="{{ (form_values.prompt_file if form_values else 'task_prompts.md') }}"></label>
+
+      <label>GitHub token<input name="token" type="password" required></label>
+      <p class="warn"># TODO_DEMO: Token is entered manually for prototype only; replace with GitHub App auth.</p>
+
+      <button type="submit">Dispatch Workflow</button>
+    </form>
+
+    {% if result %}
+      <section class="result">
+        <h2>Result</h2>
+        <p><strong>Status:</strong> {{ result.status_code }}</p>
+        <p><strong>Message:</strong> {{ result.message }}</p>
+        <pre>{{ result.response if result.response else 'No response body (204 is expected on success).' }}</pre>
+      </section>
+    {% endif %}
+  </main>
+</body>
+</html>
