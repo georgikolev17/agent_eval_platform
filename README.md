@@ -31,12 +31,13 @@ http://127.0.0.1:5000
 
 ### GitHub token permissions needed
 
-For dispatching a workflow in the target repo, use a token that can run Actions workflows in that repo.
+For dispatching a workflow in the target repo and fetching issue details first, use a token that can access both Actions and Issues in that repo.
 
 - Fine-grained PAT (recommended for demo):
   - Repository access to the target repo (`eval_regress_test`)
   - Repository permissions:
     - `Actions: Read and write` (needed for workflow dispatch)
+    - `Issues: Read` (needed to fetch issue title/body by issue id)
     - `Contents: Read` (commonly required by workflows)
 
 - Classic PAT (if used):
@@ -53,7 +54,9 @@ For dispatching a workflow in the target repo, use a token that can run Actions 
    - all eval input fields (`issue_id`, `model`, `base_commit`, `target_test`, `full_verify`, `source_file`, `prompt_file`)
    - `GitHub token`
 2. Click **Dispatch Workflow**.
-3. The page shows:
+3. The backend first fetches the GitHub issue (`title + body`) using `issue_id`.
+4. It then dispatches the caller workflow with all form inputs plus `issue_description` from the issue.
+5. The page shows:
    - raw GitHub API status code
    - success/error message
    - raw response body (if any)
